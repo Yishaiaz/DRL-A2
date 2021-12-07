@@ -1,6 +1,8 @@
 import gym
+import os
+import shutil
 import numpy as np
-# import tensorflow as tf
+import tensorflow as tf2
 import collections
 import tensorflow.compat.v1 as tf
 
@@ -42,6 +44,34 @@ class PolicyNetwork:
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
 
 
+# TENSORBOARD
+main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
+exp_details = 'TestTensorboard'
+exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
+exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
+# remove all existing dirs and files with the same experiment identifier.
+if os.path.isdir(exp_dir_to_save_train):
+    shutil.rmtree(exp_dir_to_save_train, ignore_errors=True)
+if os.path.isdir(exp_dir_to_save_test):
+    shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
+
+
+# Metrics:
+class CustomMetric(tf.keras.metrics.Metric):
+    """
+    custom metric to keep track of loss in each training step
+    """
+    def __init__(self, name='training_step_loss', dtype=tf.int32):
+        super(CustomMetric, self).__init__(name=name, dtype=dtype)
+        self.val = None
+
+    def update_state(self, x):
+        self.val = x
+
+    def result(self):
+        return self.val
+
+
 # Define hyperparameters
 state_size = 4
 action_size = env.action_space.n
@@ -57,10 +87,18 @@ render = False
 tf.reset_default_graph()
 policy = PolicyNetwork(state_size, action_size, learning_rate)
 
+tf.compat.v1.summary.scalar(name="episode_reward", tensor=policy.R_t)
+tf.compat.v1.summary.scalar(name="episode_learning_rate", tensor=policy.learning_rate)
+tf.compat.v1.summary.scalar(name="episode_loss", tensor=policy.loss)
+
+tfb_train_summary_writer = tf.summary.FileWriter(exp_dir_to_save_train)
+summaries = tf.compat.v1.summary.merge_all()
 
 # Start training the agent with REINFORCE algorithm
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
+
+
     solved = False
     Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
     episode_rewards = np.zeros(max_episodes)
@@ -104,3 +142,6 @@ with tf.Session() as sess:
             total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt
             feed_dict = {policy.state: transition.state, policy.R_t: total_discounted_return, policy.action: transition.action}
             _, loss = sess.run([policy.optimizer, policy.loss], feed_dict)
+
+            summary = sess.run(summaries, feed_dict)
+            tfb_train_summary_writer.add_summary(summary, episode)
