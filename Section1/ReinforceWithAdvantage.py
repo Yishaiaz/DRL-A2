@@ -188,6 +188,7 @@ with tf.Session() as sess:
 
         # Compute Rt for each time-step t and update the network's weights
         for t, transition in enumerate(episode_transitions):
+            # episode_reward = sum(t.reward for i, t in enumerate(episode_transitions[t:])) # Rt without discount factor
             total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt after discount factor
             curr_state_val_approximation = transition.value_approximation_of_state # V(π|St) as the baseline
             state_advantage = total_discounted_return - curr_state_val_approximation
@@ -196,7 +197,7 @@ with tf.Session() as sess:
             policy_net_feed_dict = {policy.state: transition.state, policy.R_t: state_advantage, policy.action: transition.action}
             # policy network update
             _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
-
+            policy_net_feed_dict[policy.R_t] = episode_rewards[episode]
             summary = sess.run(summaries, policy_net_feed_dict)
             tfb_train_summary_writer.add_summary(summary, episode)
 
