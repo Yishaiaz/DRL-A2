@@ -13,8 +13,44 @@ env = gym.make('CartPole-v1')
 np.random.seed(1)
 
 
+# Value network class
+class ValueApproximationNetwork:
+    def __init__(self, state_size, learning_rate, name='value_approximation_network', **kwargs):
+        loss_function = kwargs.get('loss_function', tf.losses.mean_squared_error)
+        network_optimizer = kwargs.get('network_optimizer', tf.train.AdamOptimizer)
+
+        self.state_size = state_size
+        self.learning_rate = learning_rate
+
+        self.weights_initializer = tf.keras.initializers.glorot_normal(seed=0)
+
+        with tf.variable_scope(name):
+
+            self.state = tf.placeholder(tf.float32, [None, self.state_size], name="state")
+            self.value_approximation = tf.placeholder(tf.int32, [1], name="value_approximation")
+            self.R_t = tf.placeholder(tf.float32, name="total_rewards")
+
+            self.W1 = tf.get_variable("W1", [self.state_size, 12], initializer=self.weights_initializer)
+            self.b1 = tf.get_variable("b1", [12], initializer=tf.zeros_initializer())
+            self.W2 = tf.get_variable("W2", [12, 1], initializer=self.weights_initializer)
+            self.b2 = tf.get_variable("b2", [1], initializer=tf.zeros_initializer())
+
+            self.Z1 = tf.add(tf.matmul(self.state, self.W1), self.b1)
+            self.A1 = tf.nn.relu(self.Z1)
+            self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+
+            self.state_value_approximation = tf.squeeze(self.output)
+            # Loss - type of loss function is given by the kwarg 'loss_function' and has the default
+            # value of mean_squared_error function
+            self.loss = tf.reduce_mean(loss_function(self.state_value_approximation, self.R_t))
+            self.optimizer = network_optimizer(learning_rate=self.learning_rate).minimize(self.loss)
+
+
 class PolicyNetwork:
-    def __init__(self, state_size, action_size, learning_rate, name='policy_network'):
+    def __init__(self, state_size, action_size, learning_rate, name='policy_network', **kwargs):
+        loss_function = kwargs.get('loss_function', tf.nn.softmax_cross_entropy_with_logits_v2)
+        network_optimizer = kwargs.get('network_optimizer', tf.train.AdamOptimizer)
+
         self.state_size = state_size
         self.action_size = action_size
         self.learning_rate = learning_rate
@@ -39,14 +75,14 @@ class PolicyNetwork:
             # Softmax probability distribution over actions
             self.actions_distribution = tf.squeeze(tf.nn.softmax(self.output))
             # Loss with negative log probability
-            self.neg_log_prob = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.output, labels=self.action)
+            self.neg_log_prob = loss_function(logits=self.output, labels=self.action)
             self.loss = tf.reduce_mean(self.neg_log_prob * self.R_t)
-            self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
+            self.optimizer = network_optimizer(learning_rate=self.learning_rate).minimize(self.loss)
 
 
 # TENSORBOARD
 main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
-exp_details = 'TestTensorboard'
+exp_details = 'TestValueNetworkImplementation'
 exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
 exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
 # remove all existing dirs and files with the same experiment identifier.
@@ -81,18 +117,23 @@ max_steps = 501
 discount_factor = 0.99
 learning_rate = 0.0004
 
-render = False
+render = True
 
 # Initialize the policy network
 tf.reset_default_graph()
 policy = PolicyNetwork(state_size, action_size, learning_rate)
+# ADDED
+value_approximation_network = ValueApproximationNetwork(state_size=state_size, learning_rate=learning_rate)
+# /ADDED
 
+# TENSORBOARD
 tf.compat.v1.summary.scalar(name="episode_reward", tensor=policy.R_t)
 tf.compat.v1.summary.scalar(name="episode_learning_rate", tensor=policy.learning_rate)
 tf.compat.v1.summary.scalar(name="episode_loss", tensor=policy.loss)
 
 tfb_train_summary_writer = tf.summary.FileWriter(exp_dir_to_save_train)
 summaries = tf.compat.v1.summary.merge_all()
+#/ TENSORBOARD
 
 # Start training the agent with REINFORCE algorithm
 with tf.Session() as sess:
@@ -100,7 +141,9 @@ with tf.Session() as sess:
 
 
     solved = False
-    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
+    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done",
+                                                       'value_approximation_of_state'])
+
     episode_rewards = np.zeros(max_episodes)
     average_rewards = 0.0
 
@@ -118,9 +161,15 @@ with tf.Session() as sess:
             if render:
                 env.render()
 
+            value_approximation_of_curr_state = sess.run(value_approximation_network.state_value_approximation,
+                                                         {value_approximation_network.state: state})
+
             action_one_hot = np.zeros(action_size)
             action_one_hot[action] = 1
-            episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward, next_state=next_state, done=done))
+            episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward,
+                                                  next_state=next_state, done=done,
+                                                  value_approximation_of_state=value_approximation_of_curr_state))
+
             episode_rewards[episode] += reward
 
             if done:
@@ -139,9 +188,21 @@ with tf.Session() as sess:
 
         # Compute Rt for each time-step t and update the network's weights
         for t, transition in enumerate(episode_transitions):
-            total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt
-            feed_dict = {policy.state: transition.state, policy.R_t: total_discounted_return, policy.action: transition.action}
-            _, loss = sess.run([policy.optimizer, policy.loss], feed_dict)
+            total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt after discount factor
+            curr_state_val_approximation = transition.value_approximation_of_state # V(π|St) as the baseline
+            state_advantage = total_discounted_return - curr_state_val_approximation
 
-            summary = sess.run(summaries, feed_dict)
+            # replaced discounted return with the state advantage
+            policy_net_feed_dict = {policy.state: transition.state, policy.R_t: state_advantage, policy.action: transition.action}
+            # policy network update
+            _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
+
+            summary = sess.run(summaries, policy_net_feed_dict)
             tfb_train_summary_writer.add_summary(summary, episode)
+
+            # updating the value approximation network as well
+            value_approximation_net_feed_dict = {value_approximation_network.state: transition.state,
+                                                 value_approximation_network.R_t: total_discounted_return }
+
+            _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
+                                         value_approximation_net_feed_dict)
