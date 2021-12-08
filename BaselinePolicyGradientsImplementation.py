@@ -143,5 +143,6 @@ with tf.Session() as sess:
             feed_dict = {policy.state: transition.state, policy.R_t: total_discounted_return, policy.action: transition.action}
             _, loss = sess.run([policy.optimizer, policy.loss], feed_dict)
 
+            feed_dict[policy.R_t] = episode_rewards[episode]
             summary = sess.run(summaries, feed_dict)
             tfb_train_summary_writer.add_summary(summary, episode)
