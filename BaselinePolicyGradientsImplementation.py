@@ -43,20 +43,6 @@ class PolicyNetwork:
             self.loss = tf.reduce_mean(self.neg_log_prob * self.R_t)
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
 
-
-# TENSORBOARD
-main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
-exp_details = ''
-exp_details = f'BaselinePolicy_{exp_details}'
-exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
-exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
-# remove all existing dirs and files with the same experiment identifier.
-if os.path.isdir(exp_dir_to_save_train):
-    shutil.rmtree(exp_dir_to_save_train, ignore_errors=True)
-if os.path.isdir(exp_dir_to_save_test):
-    shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
-
-
 # Metrics:
 class CustomMetric(tf.keras.metrics.Metric):
     """
@@ -81,6 +67,21 @@ max_episodes = 5000
 max_steps = 501
 discount_factor = 0.99
 learning_rate = 0.0004
+
+parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
+
+# TENSORBOARD
+exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict])
+exp_details = f'BaselinePolicy_{exp_details}'
+
+main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
+exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
+exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
+# remove all existing dirs and files with the same experiment identifier.
+if os.path.isdir(exp_dir_to_save_train):
+    shutil.rmtree(exp_dir_to_save_train, ignore_errors=True)
+if os.path.isdir(exp_dir_to_save_test):
+    shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
 
 render = False
 
