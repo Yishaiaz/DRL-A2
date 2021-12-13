@@ -46,7 +46,8 @@ class PolicyNetwork:
 
 # TENSORBOARD
 main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
-exp_details = 'TestTensorboard'
+exp_details = ''
+exp_details = f'BaselinePolicy_{exp_details}'
 exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
 exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
 # remove all existing dirs and files with the same experiment identifier.
