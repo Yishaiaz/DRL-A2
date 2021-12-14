@@ -1,3 +1,5 @@
+import itertools
+
 import gym
 import os
 import shutil
@@ -102,111 +104,111 @@ action_size = env.action_space.n
 
 max_episodes = 5000
 max_steps = 501
-discount_factor = 0.99
-learning_rate = 0.0004
+discount_factors = (0.99, 0.9)
+learning_rates = (0.0004, 0.001)
+for learning_rate, discount_factor in itertools.product(learning_rates, discount_factors):
+    parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
 
-parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
+    # TENSORBOARD
+    exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict.items()])
+    exp_details = f'REINFORCEAdvantage_{exp_details}'
 
-# TENSORBOARD
-exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict])
-exp_details = f'BaselinePolicy_{exp_details}'
+    main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
+    exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
+    exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
+    # remove all existing dirs and files with the same experiment identifier.
+    if os.path.isdir(exp_dir_to_save_train):
+        shutil.rmtree(exp_dir_to_save_train, ignore_errors=True)
+    if os.path.isdir(exp_dir_to_save_test):
+        shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
 
-main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
-exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
-exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
-# remove all existing dirs and files with the same experiment identifier.
-if os.path.isdir(exp_dir_to_save_train):
-    shutil.rmtree(exp_dir_to_save_train, ignore_errors=True)
-if os.path.isdir(exp_dir_to_save_test):
-    shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
+    render = True
 
-render = True
+    # Initialize the policy network
+    tf.reset_default_graph()
+    policy = PolicyNetwork(state_size, action_size, learning_rate)
+    # ADDED
+    value_approximation_network = ValueApproximationNetwork(state_size=state_size, learning_rate=learning_rate)
+    # /ADDED
 
-# Initialize the policy network
-tf.reset_default_graph()
-policy = PolicyNetwork(state_size, action_size, learning_rate)
-# ADDED
-value_approximation_network = ValueApproximationNetwork(state_size=state_size, learning_rate=learning_rate)
-# /ADDED
+    # TENSORBOARD
+    tf.compat.v1.summary.scalar(name="episode_reward", tensor=policy.R_t)
+    tf.compat.v1.summary.scalar(name="episode_learning_rate", tensor=policy.learning_rate)
+    tf.compat.v1.summary.scalar(name="episode_loss", tensor=policy.loss)
 
-# TENSORBOARD
-tf.compat.v1.summary.scalar(name="episode_reward", tensor=policy.R_t)
-tf.compat.v1.summary.scalar(name="episode_learning_rate", tensor=policy.learning_rate)
-tf.compat.v1.summary.scalar(name="episode_loss", tensor=policy.loss)
+    tfb_train_summary_writer = tf.summary.FileWriter(exp_dir_to_save_train)
+    summaries = tf.compat.v1.summary.merge_all()
+    #/ TENSORBOARD
 
-tfb_train_summary_writer = tf.summary.FileWriter(exp_dir_to_save_train)
-summaries = tf.compat.v1.summary.merge_all()
-#/ TENSORBOARD
-
-# Start training the agent with REINFORCE algorithm
-with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
+    # Start training the agent with REINFORCE algorithm
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
 
 
-    solved = False
-    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done",
-                                                       'value_approximation_of_state'])
+        solved = False
+        Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done",
+                                                           'value_approximation_of_state'])
 
-    episode_rewards = np.zeros(max_episodes)
-    average_rewards = 0.0
+        episode_rewards = np.zeros(max_episodes)
+        average_rewards = 0.0
 
-    for episode in range(max_episodes):
-        state = env.reset()
-        state = state.reshape([1, state_size])
-        episode_transitions = []
+        for episode in range(max_episodes):
+            state = env.reset()
+            state = state.reshape([1, state_size])
+            episode_transitions = []
 
-        for step in range(max_steps):
-            actions_distribution = sess.run(policy.actions_distribution, {policy.state: state})
-            action = np.random.choice(np.arange(len(actions_distribution)), p=actions_distribution)
-            next_state, reward, done, _ = env.step(action)
-            next_state = next_state.reshape([1, state_size])
+            for step in range(max_steps):
+                actions_distribution = sess.run(policy.actions_distribution, {policy.state: state})
+                action = np.random.choice(np.arange(len(actions_distribution)), p=actions_distribution)
+                next_state, reward, done, _ = env.step(action)
+                next_state = next_state.reshape([1, state_size])
 
-            if render:
-                env.render()
+                if render:
+                    env.render()
 
-            value_approximation_of_curr_state = sess.run(value_approximation_network.state_value_approximation,
-                                                         {value_approximation_network.state: state})
+                value_approximation_of_curr_state = sess.run(value_approximation_network.state_value_approximation,
+                                                             {value_approximation_network.state: state})
 
-            action_one_hot = np.zeros(action_size)
-            action_one_hot[action] = 1
-            episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward,
-                                                  next_state=next_state, done=done,
-                                                  value_approximation_of_state=value_approximation_of_curr_state))
+                action_one_hot = np.zeros(action_size)
+                action_one_hot[action] = 1
+                episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward,
+                                                      next_state=next_state, done=done,
+                                                      value_approximation_of_state=value_approximation_of_curr_state))
 
-            episode_rewards[episode] += reward
+                episode_rewards[episode] += reward
 
-            if done:
-                if episode > 98:
-                    # Check if solved
-                    average_rewards = np.mean(episode_rewards[(episode - 99):episode+1])
-                print("Episode {} Reward: {} Average over 100 episodes: {}".format(episode, episode_rewards[episode], round(average_rewards, 2)))
-                if average_rewards > 475:
-                    print(' Solved at episode: ' + str(episode))
-                    solved = True
+                if done:
+                    if episode > 98:
+                        # Check if solved
+                        average_rewards = np.mean(episode_rewards[(episode - 99):episode+1])
+                    print("Episode {} Reward: {} Average over 100 episodes: {}".format(episode, episode_rewards[episode], round(average_rewards, 2)))
+                    if average_rewards > 475:
+                        print(' Solved at episode: ' + str(episode))
+                        solved = True
+                    break
+                state = next_state
+
+            if solved:
                 break
-            state = next_state
 
-        if solved:
-            break
+            # Compute Rt for each time-step t and update the network's weights
+            for t, transition in enumerate(episode_transitions):
+                # episode_reward = sum(t.reward for i, t in enumerate(episode_transitions[t:])) # Rt without discount factor
+                total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt after discount factor
+                curr_state_val_approximation = transition.value_approximation_of_state # V(π|St) as the baseline
+                state_advantage = total_discounted_return - curr_state_val_approximation
 
-        # Compute Rt for each time-step t and update the network's weights
-        for t, transition in enumerate(episode_transitions):
-            # episode_reward = sum(t.reward for i, t in enumerate(episode_transitions[t:])) # Rt without discount factor
-            total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt after discount factor
-            curr_state_val_approximation = transition.value_approximation_of_state # V(π|St) as the baseline
-            state_advantage = total_discounted_return - curr_state_val_approximation
+                # replaced discounted return with the state advantage
+                policy_net_feed_dict = {policy.state: transition.state, policy.R_t: state_advantage, policy.action: transition.action}
+                # policy network update
+                _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
+                policy_net_feed_dict[policy.R_t] = episode_rewards[episode]
+                summary = sess.run(summaries, policy_net_feed_dict)
+                tfb_train_summary_writer.add_summary(summary, episode)
 
-            # replaced discounted return with the state advantage
-            policy_net_feed_dict = {policy.state: transition.state, policy.R_t: state_advantage, policy.action: transition.action}
-            # policy network update
-            _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
-            policy_net_feed_dict[policy.R_t] = episode_rewards[episode]
-            summary = sess.run(summaries, policy_net_feed_dict)
-            tfb_train_summary_writer.add_summary(summary, episode)
+                # updating the value approximation network as well
+                value_approximation_net_feed_dict = {value_approximation_network.state: transition.state,
+                                                     value_approximation_network.R_t: total_discounted_return }
 
-            # updating the value approximation network as well
-            value_approximation_net_feed_dict = {value_approximation_network.state: transition.state,
-                                                 value_approximation_network.R_t: total_discounted_return }
-
-            _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
-                                         value_approximation_net_feed_dict)
+                _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
+                                             value_approximation_net_feed_dict)
