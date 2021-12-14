@@ -71,7 +71,7 @@ learning_rate = 0.0004
 parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
 
 # TENSORBOARD
-exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict])
+exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict.items()])
 exp_details = f'BaselinePolicy_{exp_details}'
 
 main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
