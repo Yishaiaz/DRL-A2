@@ -1,3 +1,5 @@
+import itertools
+
 import gym
 import os
 import shutil
@@ -65,86 +67,93 @@ action_size = env.action_space.n
 
 max_episodes = 5000
 max_steps = 501
-discount_factor = 0.99
-learning_rate = 0.0004
 
-parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
+# Define hyperparameters
+discount_factors = (0.99, 0.9)
+learning_rates = (0.0004, 0.001)
 
-# TENSORBOARD
-exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict.items()])
-exp_details = f'BaselinePolicy_{exp_details}'
+for learning_rate, discount_factor in itertools.product(learning_rates, discount_factors):
+    parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
 
-main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
-exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
-exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
-# remove all existing dirs and files with the same experiment identifier.
-if os.path.isdir(exp_dir_to_save_train):
-    shutil.rmtree(exp_dir_to_save_train, ignore_errors=True)
-if os.path.isdir(exp_dir_to_save_test):
-    shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
+    # TENSORBOARD
+    exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict.items()])
+    parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
 
-render = False
+    # TENSORBOARD
+    exp_details = '_'.join([f'{key}={val}' for key, val in parameters_dict.items()])
+    exp_details = f'BaselinePolicy_{exp_details}'
 
-# Initialize the policy network
-tf.reset_default_graph()
-policy = PolicyNetwork(state_size, action_size, learning_rate)
+    main_dir_to_save = os.sep.join([os.getcwd(), 'Experiments'])
+    exp_dir_to_save_train = os.sep.join([main_dir_to_save, exp_details, 'train'])
+    exp_dir_to_save_test = os.sep.join([main_dir_to_save, exp_details, 'test'])
+    # remove all existing dirs and files with the same experiment identifier.
+    if os.path.isdir(exp_dir_to_save_train):
+        shutil.rmtree(exp_dir_to_save_train, ignore_errors=True)
+    if os.path.isdir(exp_dir_to_save_test):
+        shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
 
-tf.compat.v1.summary.scalar(name="episode_reward", tensor=policy.R_t)
-tf.compat.v1.summary.scalar(name="episode_learning_rate", tensor=policy.learning_rate)
-tf.compat.v1.summary.scalar(name="episode_loss", tensor=policy.loss)
+    render = False
 
-tfb_train_summary_writer = tf.summary.FileWriter(exp_dir_to_save_train)
-summaries = tf.compat.v1.summary.merge_all()
+    # Initialize the policy network
+    tf.reset_default_graph()
+    policy = PolicyNetwork(state_size, action_size, learning_rate)
 
-# Start training the agent with REINFORCE algorithm
-with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
+    tf.compat.v1.summary.scalar(name="episode_reward", tensor=policy.R_t)
+    tf.compat.v1.summary.scalar(name="episode_learning_rate", tensor=policy.learning_rate)
+    tf.compat.v1.summary.scalar(name="episode_loss", tensor=policy.loss)
+
+    tfb_train_summary_writer = tf.summary.FileWriter(exp_dir_to_save_train)
+    summaries = tf.compat.v1.summary.merge_all()
+
+    # Start training the agent with REINFORCE algorithm
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
 
 
-    solved = False
-    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
-    episode_rewards = np.zeros(max_episodes)
-    average_rewards = 0.0
+        solved = False
+        Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
+        episode_rewards = np.zeros(max_episodes)
+        average_rewards = 0.0
 
-    for episode in range(max_episodes):
-        state = env.reset()
-        state = state.reshape([1, state_size])
-        episode_transitions = []
+        for episode in range(max_episodes):
+            state = env.reset()
+            state = state.reshape([1, state_size])
+            episode_transitions = []
 
-        for step in range(max_steps):
-            actions_distribution = sess.run(policy.actions_distribution, {policy.state: state})
-            action = np.random.choice(np.arange(len(actions_distribution)), p=actions_distribution)
-            next_state, reward, done, _ = env.step(action)
-            next_state = next_state.reshape([1, state_size])
+            for step in range(max_steps):
+                actions_distribution = sess.run(policy.actions_distribution, {policy.state: state})
+                action = np.random.choice(np.arange(len(actions_distribution)), p=actions_distribution)
+                next_state, reward, done, _ = env.step(action)
+                next_state = next_state.reshape([1, state_size])
 
-            if render:
-                env.render()
+                if render:
+                    env.render()
 
-            action_one_hot = np.zeros(action_size)
-            action_one_hot[action] = 1
-            episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward, next_state=next_state, done=done))
-            episode_rewards[episode] += reward
+                action_one_hot = np.zeros(action_size)
+                action_one_hot[action] = 1
+                episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward, next_state=next_state, done=done))
+                episode_rewards[episode] += reward
 
-            if done:
-                if episode > 98:
-                    # Check if solved
-                    average_rewards = np.mean(episode_rewards[(episode - 99):episode+1])
-                print("Episode {} Reward: {} Average over 100 episodes: {}".format(episode, episode_rewards[episode], round(average_rewards, 2)))
-                if average_rewards > 475:
-                    print(' Solved at episode: ' + str(episode))
-                    solved = True
+                if done:
+                    if episode > 98:
+                        # Check if solved
+                        average_rewards = np.mean(episode_rewards[(episode - 99):episode+1])
+                    print("Episode {} Reward: {} Average over 100 episodes: {}".format(episode, episode_rewards[episode], round(average_rewards, 2)))
+                    if average_rewards > 475:
+                        print(' Solved at episode: ' + str(episode))
+                        solved = True
+                    break
+                state = next_state
+
+            if solved:
                 break
-            state = next_state
 
-        if solved:
-            break
+            # Compute Rt for each time-step t and update the network's weights
+            for t, transition in enumerate(episode_transitions):
+                total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt
+                feed_dict = {policy.state: transition.state, policy.R_t: total_discounted_return, policy.action: transition.action}
+                _, loss = sess.run([policy.optimizer, policy.loss], feed_dict)
 
-        # Compute Rt for each time-step t and update the network's weights
-        for t, transition in enumerate(episode_transitions):
-            total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt
-            feed_dict = {policy.state: transition.state, policy.R_t: total_discounted_return, policy.action: transition.action}
-            _, loss = sess.run([policy.optimizer, policy.loss], feed_dict)
-
-            feed_dict[policy.R_t] = episode_rewards[episode]
-            summary = sess.run(summaries, feed_dict)
-            tfb_train_summary_writer.add_summary(summary, episode)
+                feed_dict[policy.R_t] = episode_rewards[episode]
+                summary = sess.run(summaries, feed_dict)
+                tfb_train_summary_writer.add_summary(summary, episode)
