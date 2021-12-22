@@ -34,12 +34,16 @@ class ValueApproximationNetwork:
 
             self.W1 = tf.get_variable("W1", [self.state_size, 12], initializer=self.weights_initializer)
             self.b1 = tf.get_variable("b1", [12], initializer=tf.zeros_initializer())
-            self.W2 = tf.get_variable("W2", [12, 1], initializer=self.weights_initializer)
-            self.b2 = tf.get_variable("b2", [1], initializer=tf.zeros_initializer())
+            self.W2 = tf.get_variable("W2", [12, 8], initializer=self.weights_initializer)
+            self.b2 = tf.get_variable("b2", [8], initializer=tf.zeros_initializer())
+            self.W3 = tf.get_variable("W3", [8, 1], initializer=self.weights_initializer)
+            self.b3 = tf.get_variable("b3", [1], initializer=tf.zeros_initializer())
 
             self.Z1 = tf.add(tf.matmul(self.state, self.W1), self.b1)
             self.A1 = tf.nn.relu(self.Z1)
-            self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            self.Z2 = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            self.A2 = tf.nn.relu(self.Z2)
+            self.output = tf.add(tf.matmul(self.A2, self.W3), self.b3)
 
             self.state_value_approximation = tf.squeeze(self.output)
             # Loss - type of loss function is given by the kwarg 'loss_function' and has the default
@@ -65,14 +69,27 @@ class PolicyNetwork:
             self.action = tf.placeholder(tf.int32, [self.action_size], name="action")
             self.R_t = tf.placeholder(tf.float32, name="total_rewards")
 
+            # self.W1 = tf.get_variable("W1", [self.state_size, 12], initializer=self.weights_initializer)
+            # self.b1 = tf.get_variable("b1", [12], initializer=tf.zeros_initializer())
+            # self.W2 = tf.get_variable("W2", [12, self.action_size], initializer=self.weights_initializer)
+            # self.b2 = tf.get_variable("b2", [self.action_size], initializer=tf.zeros_initializer())
+
+            # self.Z1 = tf.add(tf.matmul(self.state, self.W1), self.b1)
+            # self.A1 = tf.nn.relu(self.Z1)
+            # self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            
             self.W1 = tf.get_variable("W1", [self.state_size, 12], initializer=self.weights_initializer)
             self.b1 = tf.get_variable("b1", [12], initializer=tf.zeros_initializer())
-            self.W2 = tf.get_variable("W2", [12, self.action_size], initializer=self.weights_initializer)
-            self.b2 = tf.get_variable("b2", [self.action_size], initializer=tf.zeros_initializer())
+            self.W2 = tf.get_variable("W2", [12, 8], initializer=self.weights_initializer)
+            self.b2 = tf.get_variable("b2", [8], initializer=tf.zeros_initializer())
+            self.W3 = tf.get_variable("W3", [8, self.action_size], initializer=self.weights_initializer)
+            self.b3 = tf.get_variable("b3", [self.action_size], initializer=tf.zeros_initializer())
 
             self.Z1 = tf.add(tf.matmul(self.state, self.W1), self.b1)
             self.A1 = tf.nn.relu(self.Z1)
-            self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            self.Z2 = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            self.A2 = tf.nn.relu(self.Z2)
+            self.output = tf.add(tf.matmul(self.A2, self.W3), self.b3)
 
             # Softmax probability distribution over actions
             self.actions_distribution = tf.squeeze(tf.nn.softmax(self.output))
@@ -102,10 +119,10 @@ class CustomMetric(tf.keras.metrics.Metric):
 state_size = 4
 action_size = env.action_space.n
 
-max_episodes = 2000
+max_episodes = 1500
 max_steps = 501
-discount_factors = (0.999, 0.9)
-learning_rates = (0.002, 0.001)
+discount_factors = (0.99, 0.9)
+learning_rates = (0.0005, 0.001)
 for learning_rate, discount_factor in itertools.product(learning_rates, discount_factors):
     parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
 
@@ -126,9 +143,9 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
 
     # Initialize the policy network
     tf.reset_default_graph()
-    policy = PolicyNetwork(state_size, action_size, learning_rate)
+    policy = PolicyNetwork(state_size, action_size,learning_rate)
     # ADDED
-    value_approximation_network = ValueApproximationNetwork(state_size=state_size, learning_rate=learning_rate)
+    value_approximation_network = ValueApproximationNetwork(state_size=state_size, learning_rate=0.002)
     # /ADDED
 
     # TENSORBOARD
@@ -172,19 +189,19 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
                 value_approximation_of_next_state = sess.run(value_approximation_network.state_value_approximation,
                                                              {value_approximation_network.state: next_state})
                 
-                target = reward + discount_factor * value_approximation_of_next_state*(int(1-done))
+                target = reward + discount_factor*value_approximation_of_next_state*(int(1-done))
                 delta = target - value_approximation_of_curr_state
 
                 action_one_hot = np.zeros(action_size)
                 action_one_hot[action] = 1
-                episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward,
-                                                      next_state=next_state, done=done,
-                                                      value_approximation_of_state=value_approximation_of_curr_state))
-                
+
                 # replaced discounted return with the state advantage
                 policy_net_feed_dict = {policy.state: state, policy.R_t: delta, policy.action: action_one_hot}
                 # policy network update
                 _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
+                policy_net_feed_dict[policy.R_t] = reward
+                summary = sess.run(summaries, policy_net_feed_dict)
+                tfb_train_summary_writer.add_summary(summary, episode)
 
                 # updating the value approximation network as well
                 value_approximation_net_feed_dict = {value_approximation_network.state: state,
@@ -192,14 +209,10 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
 
                 _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
                                                 value_approximation_net_feed_dict)
-                
+
                 episode_rewards[episode] += reward
-                
 
                 if done:
-                    policy_net_feed_dict[policy.R_t] = episode_rewards[episode]
-                    summary = sess.run(summaries, policy_net_feed_dict)
-                    tfb_train_summary_writer.add_summary(summary, episode)
                     if episode > 98:
                         # Check if solved
                         average_rewards = np.mean(episode_rewards[(episode - 99):episode+1])
@@ -209,8 +222,9 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
                         solved = True
                     break
                 state = next_state
-                
 
             if solved:
                 break
+
+
 
