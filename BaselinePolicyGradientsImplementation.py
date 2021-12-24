@@ -65,7 +65,7 @@ class CustomMetric(tf.keras.metrics.Metric):
 state_size = 4
 action_size = env.action_space.n
 
-max_episodes = 5000
+max_episodes = 2000
 max_steps = 501
 
 # Define hyperparameters

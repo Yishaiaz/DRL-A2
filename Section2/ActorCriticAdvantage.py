@@ -36,15 +36,19 @@ class ValueApproximationNetwork:
             self.b1 = tf.get_variable("b1", [12], initializer=tf.zeros_initializer())
             self.W2 = tf.get_variable("W2", [12, 1], initializer=self.weights_initializer)
             self.b2 = tf.get_variable("b2", [1], initializer=tf.zeros_initializer())
+            # self.W3 = tf.get_variable("W3", [128, 1], initializer=self.weights_initializer)
+            # self.b3 = tf.get_variable("b3", [1], initializer=tf.zeros_initializer())
 
             self.Z1 = tf.add(tf.matmul(self.state, self.W1), self.b1)
             self.A1 = tf.nn.relu(self.Z1)
+            # self.Z2 = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            # self.A2 = tf.nn.relu(self.Z2)
             self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
 
             self.state_value_approximation = tf.squeeze(self.output)
             # Loss - type of loss function is given by the kwarg 'loss_function' and has the default
             # value of mean_squared_error function
-            self.loss = tf.reduce_mean(loss_function(self.state_value_approximation, self.R_t))
+            self.loss = tf.reduce_mean(loss_function(self.R_t,self.state_value_approximation))
             self.optimizer = network_optimizer(learning_rate=self.learning_rate).minimize(self.loss)
 
 
@@ -104,8 +108,8 @@ action_size = env.action_space.n
 
 max_episodes = 2000
 max_steps = 501
-discount_factors = (0.999, 0.9)
-learning_rates = (0.002, 0.001)
+discount_factors = (0.99, 0.9)
+learning_rates = (0.0004, 0.001)
 for learning_rate, discount_factor in itertools.product(learning_rates, discount_factors):
     parameters_dict = {'lr': learning_rate, 'discount': discount_factor}
 
@@ -128,7 +132,7 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
     tf.reset_default_graph()
     policy = PolicyNetwork(state_size, action_size, learning_rate)
     # ADDED
-    value_approximation_network = ValueApproximationNetwork(state_size=state_size, learning_rate=learning_rate)
+    value_approximation_network = ValueApproximationNetwork(state_size=state_size, learning_rate=0.02)
     # /ADDED
 
     # TENSORBOARD
@@ -151,15 +155,16 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
 
         episode_rewards = np.zeros(max_episodes)
         average_rewards = 0.0
-
+        train = True
         for episode in range(max_episodes):
             state = env.reset()
             state = state.reshape([1, state_size])
             episode_transitions = []
-
+            i = 1
             for step in range(max_steps):
                 actions_distribution = sess.run(policy.actions_distribution, {policy.state: state})
                 action = np.random.choice(np.arange(len(actions_distribution)), p=actions_distribution)
+                # action = np.argmax(actions_distribution)
                 next_state, reward, done, _ = env.step(action)
                 next_state = next_state.reshape([1, state_size])
 
@@ -172,28 +177,29 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
                 value_approximation_of_next_state = sess.run(value_approximation_network.state_value_approximation,
                                                              {value_approximation_network.state: next_state})
                 
-                target = reward + discount_factor * value_approximation_of_next_state*(int(1-done))
+                target = reward + discount_factor * value_approximation_of_next_state * (int(1-done))
                 delta = target - value_approximation_of_curr_state
 
                 action_one_hot = np.zeros(action_size)
                 action_one_hot[action] = 1
-                episode_transitions.append(Transition(state=state, action=action_one_hot, reward=reward,
-                                                      next_state=next_state, done=done,
-                                                      value_approximation_of_state=value_approximation_of_curr_state))
+
                 
                 # replaced discounted return with the state advantage
-                policy_net_feed_dict = {policy.state: state, policy.R_t: delta, policy.action: action_one_hot}
-                # policy network update
-                _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
+                
+                if (train):
+                    policy_net_feed_dict = {policy.state: state, policy.R_t: delta, policy.action: action_one_hot}
+                    # policy network update
+                    _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
 
-                # updating the value approximation network as well
-                value_approximation_net_feed_dict = {value_approximation_network.state: state,
-                                                        value_approximation_network.R_t: target }
+                    # updating the value approximation network as well
+                    value_approximation_net_feed_dict = {value_approximation_network.state: state,
+                                                    value_approximation_network.R_t: target}
 
-                _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
+                    _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
                                                 value_approximation_net_feed_dict)
                 
                 episode_rewards[episode] += reward
+                i = discount_factor*i
                 
 
                 if done:
@@ -207,7 +213,11 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
                     if average_rewards > 475:
                         print(' Solved at episode: ' + str(episode))
                         solved = True
-                    break
+                    if (episode_rewards[episode]>475):
+                        train = False
+                    else:
+                        train = True
+                    break;
                 state = next_state
                 
 

@@ -102,7 +102,7 @@ class CustomMetric(tf.keras.metrics.Metric):
 state_size = 4
 action_size = env.action_space.n
 
-max_episodes = 5000
+max_episodes = 2000
 max_steps = 501
 discount_factors = (0.99, 0.9)
 learning_rates = (0.0004, 0.001)
@@ -122,7 +122,7 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
     if os.path.isdir(exp_dir_to_save_test):
         shutil.rmtree(exp_dir_to_save_test, ignore_errors=True)
 
-    render = True
+    render = False
 
     # Initialize the policy network
     tf.reset_default_graph()
@@ -151,7 +151,7 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
 
         episode_rewards = np.zeros(max_episodes)
         average_rewards = 0.0
-
+        train = True
         for episode in range(max_episodes):
             state = env.reset()
             state = state.reshape([1, state_size])
@@ -185,12 +185,18 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
                     if average_rewards > 475:
                         print(' Solved at episode: ' + str(episode))
                         solved = True
+                    if (episode_rewards[episode]>475):
+                        train = False
+                    else:
+                        train = True                
                     break
+                
                 state = next_state
 
             if solved:
                 break
-
+            
+            
             # Compute Rt for each time-step t and update the network's weights
             for t, transition in enumerate(episode_transitions):
                 # episode_reward = sum(t.reward for i, t in enumerate(episode_transitions[t:])) # Rt without discount factor
@@ -200,8 +206,9 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
 
                 # replaced discounted return with the state advantage
                 policy_net_feed_dict = {policy.state: transition.state, policy.R_t: state_advantage, policy.action: transition.action}
+                if (train):
                 # policy network update
-                _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
+                    _, policy_net_loss = sess.run([policy.optimizer, policy.loss], policy_net_feed_dict)
                 policy_net_feed_dict[policy.R_t] = episode_rewards[episode]
                 summary = sess.run(summaries, policy_net_feed_dict)
                 tfb_train_summary_writer.add_summary(summary, episode)
@@ -209,6 +216,6 @@ for learning_rate, discount_factor in itertools.product(learning_rates, discount
                 # updating the value approximation network as well
                 value_approximation_net_feed_dict = {value_approximation_network.state: transition.state,
                                                      value_approximation_network.R_t: total_discounted_return }
-
-                _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
+                if (train):
+                    _, value_net_loss = sess.run([value_approximation_network.optimizer, value_approximation_network.loss],
                                              value_approximation_net_feed_dict)
